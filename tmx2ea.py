@@ -12,7 +12,7 @@ def showExceptionAndExit(exc_type, exc_value, tb):
 def tmxTileToGbafeTile(tileGid):
     return ((tileGid - 1) * 4) if tileGid != 0 else 0
 
-def makedmp(tmap,layer,fname):
+def makedmp(tmap, layer, fname):
     ary = [tmap.width+(tmap.height<<8)]
 
     for tile in layer.tiles:
@@ -167,15 +167,23 @@ def genHeaderLines():
 
 def main():
     sys.excepthook = showExceptionAndExit
-    create_installer = False
+    createInstaller = False
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("tmxpath", nargs='*', help="path to tmx file to process") #all arguments are tmx files
+    parser = argparse.ArgumentParser(description = 'Convert TMX file(s) to EA events. When no arguments are given, will ask what to do. If given a list of tmx files, will process them all. If given the `-s` option, will scan current directory for tmx files, process them all, and generate a master installer.')
+
+    # input
+    parser.add_argument("tmxFiles", nargs='*', help="path to tmx file(s) to process") #all arguments are tmx files
     parser.add_argument("-s", "--scanfolders", action="store_true", help="scan all subfolders and generate master installer") #optional scan
+
+    # output
+    parser.add_argument("-O", '--installer', help = 'output installer event (default: [Folder]/Master Map Installer.event)')
+    
+    # options
+    parser.add_argument("-H", "--noheader", action="store_true", help="do not add in the tmx2ea header in generated file(s)")
 
     args = parser.parse_args()
 
-    if (not args.tmxpath) and (not args.scanfolders): #no arguments given and scanfolders is not true
+    if (not args.tmxFiles) and (not args.scanfolders): #no arguments given and scanfolders is not true
         import tkinter as tk
         from tkinter import filedialog, messagebox
 
@@ -200,15 +208,15 @@ def main():
                 sys.exit(-1)
             
             else:
-                args.tmxpath = [ tmxFile ]
+                args.tmxFiles = [ tmxFile ]
     
     if args.scanfolders:
-        args.tmxpath = glob.glob('**/*.tmx',recursive=True)
-        create_installer = True
+        args.tmxFiles = glob.glob('**/*.tmx',recursive=True)
+        createInstaller = True
 
     processedFiles = []
 
-    for tmxFile in args.tmxpath:
+    for tmxFile in args.tmxFiles:
         tmxMap = tmx.TileMap.load(tmxFile)
         dataLines = process(tmxMap, tmxFile)
 
@@ -217,15 +225,20 @@ def main():
 
             with open(eventFile, 'w') as f:
                 f.write('{\n\n')
-                f.writelines(genHeaderLines())
+                
+                if not args.noheader:
+                    f.writelines(genHeaderLines())
+
                 f.write(dataLines)
                 f.write('}\n')
             
             processedFiles.append(eventFile)
 
-    if create_installer:
-        with open("Master Map Installer.event", 'w') as f:
-            f.writelines(map(lambda file: '#include "{}"\n'.format(file), processedFiles))
+    if createInstaller:
+        installerFile = args.installer if args.installer else "Master Map Installer.event"
+
+        with open(installerFile, 'w') as f:
+            f.writelines(map(lambda file: '#include "{}"\n'.format(os.path.relpath(file, os.path.dirname(installerFile))), processedFiles))
 
     input("....done!\nPress Enter key to exit.")
 
