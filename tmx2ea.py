@@ -1,34 +1,40 @@
 import six, tmx, sys, os, lzss, glob
-import tkinter as tk
-from tkinter import filedialog, messagebox
 import argparse
-
 
 # TODO: Update macros, and don't overwrite existing maps
 
-def show_exception_and_exit(exc_type, exc_value, tb):
+def showExceptionAndExit(exc_type, exc_value, tb):
     import traceback
     traceback.print_exception(exc_type, exc_value, tb)
     input("Press Enter key to exit.")
     sys.exit(-1)
 
+def tmxTileToGbafeTile(tileGid):
+    return ((tileGid - 1) * 4) if tileGid != 0 else 0
+
 def makedmp(tmap,layer,fname):
     ary = [tmap.width+(tmap.height<<8)]
+
     for tile in layer.tiles:
-        ary.append((tile.gid - 1) * 4)
+        ary.append(tmxTileToGbafeTile(tile.gid))
+
     result = b''.join([(x).to_bytes(2,'little') for x in ary])
+
     with open(os.path.splitext(fname)[0]+"_data.dmp", 'wb') as myfile:
         lzss.compress(result, myfile)
 
-def getTileChange(layer,x,y,w,h):
-    tilemap = [hex((tile.gid-1)*4) for tile in layer.tiles if tile.gid is not 0]
-    result = layer.name.replace(" ", "_") + ":\nSHORT "
-    for t in tilemap:
-        result += (t + " ")
+def getTileChange(layer):
+    tilemap = [tmxTileToGbafeTile(tile.gid) for tile in layer.tiles if tile.gid is not 0]
+
+    result = layer.name.replace(" ", "_") + ":\nSHORT"
+
+    for tile in tilemap:
+        result += " ${:X}".format(tile)
+
     result += "\nALIGN 4\n\n"
     return result
 
-def process(tmap,fname):
+def process(tmap, fname):
     """
     Let's see. Need to get layers. 
      <property name="Height" value ="3"/>
@@ -63,62 +69,79 @@ def process(tmap,fname):
     for layer in tmap.layers:
         isMain = False
         for p in layer.properties:
-            if (p.name.lower() == "main"):
-                assert mainlayer==False, "More than one layer marked as Main in "+os.path.split(fname)[1]
+            name = p.name.lower()
+
+            if name == "main":
+                assert mainlayer==False, "More than one layer marked as Main in " + os.path.split(fname)[1]
                 isMain = True
                 mainlayer = True
-                makedmp(tmap,layer,fname) #turn this layer into tiles and output a dmp
-            elif p.name.lower() == "id":
+                makedmp(tmap, layer, fname) # turn this layer into tiles and output a dmp
+
+            elif name == "id":
                 layerID = p.value
-            elif p.name.lower() == "height":
+
+            elif name == "height":
                 height = p.value
-            elif p.name.lower() == "width":
+
+            elif name == "width":
                 width = p.value
-            elif p.name.lower() == "x":
+
+            elif name == "x":
                 layerX = p.value
-            elif p.name.lower() == "y":
+
+            elif name == "y":
                 layerY = p.value
-            elif p.name.lower() == "chapterid":
+
+            elif name == "chapterid":
                 ChapterID = p.value
-            elif p.name.lower() == "objecttype":
+
+            elif name == "objecttype1" or name == "objecttype":
                 ObjectType = p.value
-            elif p.name.lower() == "objecttype1":
-                ObjectType = p.value
-            elif p.name.lower() == "objecttype2":
+
+            elif name == "objecttype2":
                 ObjectType2 = p.value                
-            elif p.name.lower() == "paletteid":
+
+            elif name == "paletteid":
                 PaletteID = p.value
-            elif p.name.lower() == "tileconfig":
+
+            elif name == "tileconfig":
                 TileConfig = p.value
-            elif p.name.lower() == "mapid":
+
+            elif name == "mapid":
                 MapID = p.value
-            elif p.name.lower() == "mapchangesid":
+
+            elif name == "mapchangesid":
                 MapChangesID = p.value
-            elif p.name.lower() == "anims":
+
+            elif name == "anims1" or name == "anims":
                 Anims1 = p.value
-            elif p.name.lower() == "anims1":
-                Anims1 = p.value
-            elif p.name.lower() == "anims2":
+
+            elif name == "anims2":
                 Anims2 = p.value
             
-        if len(tmap.layers)==1: #for the case of no properties and one layer
+        if len(tmap.layers)==1: # for the case of no properties and one layer
             mainlayer = True
-            makedmp(tmap,layer,fname) #turn this layer into tiles and output a dmp
-        if (isMain==False) and len(tmap.layers)!=1: #write any tile change layers
+            makedmp(tmap,layer,fname) # turn this layer into tiles and output a dmp
+        
+        if (isMain == False) and len(tmap.layers)!=1: # write any tile change layers
             macro = "TileMap(" + str(layerID) + "," + str(layerX) + "," + str(layerY) + "," + str(width) + "," + str(height) + "," + layer.name.replace(" ", "_") + ")\n"
-            tileChangeData = getTileChange(layer,layerX,layerY,width,height)
+            tileChangeData = getTileChange(layer)
             macros += macro
             changes += tileChangeData
-    if mainlayer==False: #handle the case of no main and multiple layers
+
+    if mainlayer == False: #handle the case of no main and multiple layers
         print("WARNING:\n" + os.path.split(fname)[1] + " has no layer marked as Main, skipping")
         return None
 
     output += chapterdata.format(**locals())
     output += ("Map:\n#incbin \"" + os.path.splitext(os.path.split(fname)[1])[0]+"_data.dmp\"\n\nMapChanges:\n")
+
     if macros == "": #no map changes
         output = output.replace("EventPointerTable(map_changes, MapChanges)\n",'').replace("\nMapChanges:\n",'').replace("map_changes","0")
+
     else:
         output += (macros + "TileMapEnd\n\n" + changes)
+
     return output
 
 def genHeaderLines():
@@ -143,7 +166,7 @@ def genHeaderLines():
     yield "#endif // TMX2EA\n\n"
 
 def main():
-    sys.excepthook = show_exception_and_exit
+    sys.excepthook = showExceptionAndExit
     create_installer = False
 
     parser = argparse.ArgumentParser()
@@ -153,17 +176,32 @@ def main():
     args = parser.parse_args()
 
     if (not args.tmxpath) and (not args.scanfolders): #no arguments given and scanfolders is not true
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+
         root = tk.Tk()
         root.withdraw()
-        if messagebox.askyesno("Folder Scan","Scan all subfolders for .tmx files?"):
+
+        if messagebox.askyesno("Folder Scan", "Scan all subfolders for .tmx files?"):
             args.scanfolders = True
+
         else:
-            tmxmap = (filedialog.askopenfilename(filetypes=[("TMX files",".tmx"),("All files",".*")],initialdir=os.getcwd(),title="Select TMX file to process"))
-            if tmxmap=="":
+            tmxFile = filedialog.askopenfilename(
+                title = "Select TMX file to process",
+                initialdir = os.getcwd(),
+                filetypes = [
+                    ("TMX files", ".tmx"),
+                    ("All files", ".*")
+                ]
+            )
+            
+            if tmxFile == "":
                 input("No file given.\nPress Enter key to exit.")
                 sys.exit(-1)
+            
             else:
-                args.tmxpath = [tmxmap]
+                args.tmxpath = [ tmxFile ]
+    
     if args.scanfolders:
         args.tmxpath = glob.glob('**/*.tmx',recursive=True)
         create_installer = True
