@@ -1,148 +1,171 @@
-import six, tmx, sys, os, lzss, glob
-import argparse
 
-# TODO: Update macros, and don't overwrite existing maps
+import six, tmx, sys, os, re, lzss, glob
+import argparse
 
 def showExceptionAndExit(exc_type, exc_value, tb):
     import traceback
+
     traceback.print_exception(exc_type, exc_value, tb)
-    input("Press Enter key to exit.")
     sys.exit(-1)
 
 def tmxTileToGbafeTile(tileGid):
     return ((tileGid - 1) * 4) if tileGid != 0 else 0
 
-def makedmp(tmap, layer, fname):
-    ary = [tmap.width+(tmap.height<<8)]
+def getIdentifierName(name):
+    return re.sub(r"\W", '_', name)
 
-    for tile in layer.tiles:
-        ary.append(tmxTileToGbafeTile(tile.gid))
+class Tmx2EaError(Exception):
 
-    result = b''.join([(x).to_bytes(2,'little') for x in ary])
+    def __init__(self, msg):
+        self.message = msg
 
-    with open(os.path.splitext(fname)[0]+"_data.dmp", 'wb') as myfile:
-        lzss.compress(result, myfile)
+def getMapChangeGeometry(tmap, layer):
+    # TODO: account for X, Y, Width, Height parameters when they are present.
 
-def getTileChange(layer):
-    tilemap = [tmxTileToGbafeTile(tile.gid) for tile in layer.tiles if tile.gid is not 0]
+    xMin = tmap.width
+    yMin = tmap.height
+    xMax = 0
+    yMax = 0
 
-    result = layer.name.replace(" ", "_") + ":\nSHORT"
+    for ix in range(tmap.width):
+        for iy in range(tmap.height):
+            idx = iy * tmap.width + ix
 
-    for tile in tilemap:
-        result += " ${:X}".format(tile)
+            if layer.tiles[idx].gid is not 0:
+                xMin = xMin if xMin < ix else ix
+                yMin = yMin if yMin < iy else iy
+                xMax = xMax if xMax > ix else ix
+                yMax = yMax if yMax > iy else iy
 
-    result += "\nALIGN 4\n\n"
-    return result
+    return (xMin, yMin, xMax - xMin + 1, yMax - yMin + 1)
 
-def process(tmap, fname):
-    """
-    Let's see. Need to get layers. 
-     <property name="Height" value ="3"/>
-     <property name="ID" value ="1"/>
-     <property name="Width" value ="3"/>
-     <property name="X" value ="6"/>
-     <property name="Y" value ="0"/>
-    """
+def getMapChangeData(tmap, layer, geometry):
+    tiles = []
 
-    output = ""
+    for ix in range(geometry[0], geometry[0] + geometry[2]):
+        for iy in range(geometry[1], geometry[1] + geometry[3]):
+            idx = iy * tmap.width + ix
+            tiles.append(tmxTileToGbafeTile(layer.tiles[idx].gid))
 
-    chapterdata = "SetChapterData({ChapterID},{ObjectType},{ObjectType2},{PaletteID},{TileConfig},{MapID},Map,{Anims1},{Anims2},{MapChangesID})\nEventPointerTable({MapChangesID}, MapChanges)\n"
-    macros = ""
-    changes = ""
+    return tiles
 
-    #map properties
-    ChapterID = "ChapterID"
-    ObjectType = "ObjectType"
-    ObjectType2 = "0"
-    PaletteID = "PaletteID"
-    TileConfig = "TileConfig"
-    MapID = "map_id"
-    Anims1 = "0"
-    Anims2 = "0"
-    MapChangesID = "map_changes"
+class FeMapChange:
 
-    if (tmap.tilewidth == tmap.tileheight == 16)==False:
-        print("WARNING:\n" + os.path.split(fname)[1] + " does not have 16x16 tiles, skipping")
-        return None
+    def __init__(self):
+        self.x      = 0
+        self.y      = 0
+        self.width  = 0
+        self.height = 0
 
-    mainlayer = False    
-    for layer in tmap.layers:
-        isMain = False
+        self.tiles  = []
+        self.name   = ""
+        self.number = -1
+
+    @staticmethod
+    def makeFromLayer(tmap, layer):
+        geo = getMapChangeGeometry(tmap, layer)
+        tiles = getMapChangeData(tmap, layer, geo)
+
+        result = FeMapChange()
+
+        result.x      = geo[0]
+        result.y      = geo[1]
+        result.width  = geo[2]
+        result.height = geo[3]
+
+        result.tiles  = tiles
+
+        result.name   = getIdentifierName(layer.name)
+
         for p in layer.properties:
-            name = p.name.lower()
+            if p.name.upper() == 'ID':
+                result.number = int(p.value, base = 0)
 
-            if name == "main":
-                assert mainlayer==False, "More than one layer marked as Main in " + os.path.split(fname)[1]
+        return result
+
+class FeMap:
+
+    def __init__(self, size, mainLayer, mapChanges, properties):
+        self.size       = size       # (int, int)
+        self.mapChanges = mapChanges # FeMapChange[]
+        self.mainLayer  = mainLayer  # int[]
+        self.properties = properties # { string: string }
+
+    def genMissingMapChangeIds(self):
+        # building set of used map change ids
+        ids = { mapChange.number for mapChange in self.mapChanges if mapChange.number >= 0 }
+
+        # i is counter for map change id (start at -1 as we add 1 before checking each time)
+        i = -1
+
+        for mapChange in self.mapChanges:
+            if mapChange.number >= 0:
+                continue
+
+            i = i + 1 # ensure we are not re-using any ids
+
+            # find next unused id
+            while i in ids:
+                i = i + 1
+
+            mapChange.number = i
+
+    @staticmethod
+    def makeFromTiledMap(tmap):
+        if (tmap.tilewidth != 16) or (tmap.tileheight != 16):
+            raise Tmx2EaError("bad tile size! tile size should be 16x16 pixels")
+
+        size = (tmap.width, tmap.height)
+
+        mapChanges = []
+        mainLayer  = None
+        properties = None
+
+        for layer in tmap.layers:
+            isMain = False
+
+            if layer.name.lower() == "main":
                 isMain = True
-                mainlayer = True
-                makedmp(tmap, layer, fname) # turn this layer into tiles and output a dmp
 
-            elif name == "id":
-                layerID = p.value
+            elif len(tmap.layers) == 1:
+                isMain = True
 
-            elif name == "height":
-                height = p.value
+            else:
+                for p in layer.properties:
+                    if (p.name.lower() == "main"):
+                        isMain = True
 
-            elif name == "width":
-                width = p.value
+            if isMain:
+                # If is main layer, take tiles and properties from it
+                if mainLayer:
+                    raise Tmx2EaError("this map has multiple main layers!")
 
-            elif name == "x":
-                layerX = p.value
+                properties = { p.name.lower(): p.value for p in layer.properties if (p.name.lower() != 'main' and p.value and p.value != '') }
+                mainLayer = [tmxTileToGbafeTile(tile.gid) for tile in layer.tiles]
 
-            elif name == "y":
-                layerY = p.value
+            else:
+                # Otherwise, it is a map change layer and we will generate a map change from it
+                mapChanges.append(FeMapChange.makeFromLayer(tmap, layer))
 
-            elif name == "chapterid":
-                ChapterID = p.value
+        if not mainLayer:
+            raise Tmx2EaError("this map has no main layer!")
 
-            elif name == "objecttype1" or name == "objecttype":
-                ObjectType = p.value
+        return FeMap(size, mainLayer, mapChanges, properties)
 
-            elif name == "objecttype2":
-                ObjectType2 = p.value                
+    def getMapDataBytes(self):
+        u16Array = [self.size[0] + (self.size[1] << 8)] + self.mainLayer
+        return b''.join([x.to_bytes(2, 'little') for x in u16Array])
 
-            elif name == "paletteid":
-                PaletteID = p.value
+KEY_PROPERTY_IMAGE1  = "objecttype1"
+KEY_PROPERTY_IMAGE2  = "objecttype2"
+KEY_PROPERTY_PALETTE = "paletteid"
+KEY_PROPERTY_CONFIG  = "tileconfig"
+KEY_PROPERTY_ANIMS1  = "anims1"
+KEY_PROPERTY_ANIMS2  = "anims2"
 
-            elif name == "tileconfig":
-                TileConfig = p.value
-
-            elif name == "mapid":
-                MapID = p.value
-
-            elif name == "mapchangesid":
-                MapChangesID = p.value
-
-            elif name == "anims1" or name == "anims":
-                Anims1 = p.value
-
-            elif name == "anims2":
-                Anims2 = p.value
-            
-        if len(tmap.layers)==1: # for the case of no properties and one layer
-            mainlayer = True
-            makedmp(tmap,layer,fname) # turn this layer into tiles and output a dmp
-        
-        if (isMain == False) and len(tmap.layers)!=1: # write any tile change layers
-            macro = "TileMap(" + str(layerID) + "," + str(layerX) + "," + str(layerY) + "," + str(width) + "," + str(height) + "," + layer.name.replace(" ", "_") + ")\n"
-            tileChangeData = getTileChange(layer)
-            macros += macro
-            changes += tileChangeData
-
-    if mainlayer == False: #handle the case of no main and multiple layers
-        print("WARNING:\n" + os.path.split(fname)[1] + " has no layer marked as Main, skipping")
-        return None
-
-    output += chapterdata.format(**locals())
-    output += ("Map:\n#incbin \"" + os.path.splitext(os.path.split(fname)[1])[0]+"_data.dmp\"\n\nMapChanges:\n")
-
-    if macros == "": #no map changes
-        output = output.replace("EventPointerTable(map_changes, MapChanges)\n",'').replace("\nMapChanges:\n",'').replace("map_changes","0")
-
-    else:
-        output += (macros + "TileMapEnd\n\n" + changes)
-
-    return output
+KEY_PROPERTY_CHAPTER = "chapterid"
+KEY_PROPERTY_MAPID   = "mapid"
+KEY_PROPERTY_MAPCID  = "mapchangesid"
 
 def genHeaderLines():
     yield '#include "EAstdlib.event"\n\n'
@@ -162,6 +185,110 @@ def genHeaderLines():
     yield '#define SetChapterData(ChapterID,ObjectType1,ObjectType2,PaletteID,TileConfig,MapID,MapPointer,Anims1,Anims2,MapChanges) "PUSH; ORG ChapterDataTable+(ChapterID*148)+4; BYTE ObjectType1 ObjectType2 PaletteID TileConfig MapID Anims1 Anims2 MapChanges; EventPointerTable(MapID,MapPointer); POP"\n\n'
 
     yield "#endif // TMX2EA\n\n"
+
+def process(tmap, srcFilename, eventFilename, dmpFilename):
+    """
+    Let's see. Need to get layers. 
+     <property name="Height" value ="3"/>
+     <property name="ID" value ="1"/>
+     <property name="Width" value ="3"/>
+     <property name="X" value ="6"/>
+     <property name="Y" value ="0"/>
+    """
+
+    feMap = FeMap.makeFromTiledMap(tmap)
+    feMap.genMissingMapChangeIds()
+
+    # Fill unset properties
+    # TODO: do that more clean (use data structure to define aliases and defaults)
+
+    if not KEY_PROPERTY_IMAGE1 in feMap.properties:
+        if "objecttype" in feMap.properties:
+            feMap.properties[KEY_PROPERTY_IMAGE1] = feMap.properties["objecttype"]
+            del feMap.properties["objecttype"]
+        else:
+            feMap.properties[KEY_PROPERTY_IMAGE1] = "ObjectType"
+
+    if not KEY_PROPERTY_IMAGE2 in feMap.properties:
+        feMap.properties[KEY_PROPERTY_IMAGE2] = "0"
+
+    if not KEY_PROPERTY_PALETTE in feMap.properties:
+        feMap.properties[KEY_PROPERTY_PALETTE] = "PaletteID"
+
+    if not KEY_PROPERTY_CONFIG in feMap.properties:
+        feMap.properties[KEY_PROPERTY_CONFIG] = "TileConfig"
+
+    if not KEY_PROPERTY_ANIMS1 in feMap.properties:
+        if "anims" in feMap.properties:
+            feMap.properties[KEY_PROPERTY_ANIMS1] = feMap.properties["anims"]
+            del feMap.properties["anims"]
+        else:
+            feMap.properties[KEY_PROPERTY_ANIMS1] = "0"
+
+    if not KEY_PROPERTY_ANIMS2 in feMap.properties:
+        feMap.properties[KEY_PROPERTY_ANIMS2] = "0"
+
+    if not KEY_PROPERTY_CHAPTER in feMap.properties:
+        feMap.properties[KEY_PROPERTY_CHAPTER] = "ChapterID"
+
+    if not KEY_PROPERTY_MAPID in feMap.properties:
+        feMap.properties[KEY_PROPERTY_MAPID] = "map_id"
+
+    if not KEY_PROPERTY_MAPCID in feMap.properties:
+        feMap.properties[KEY_PROPERTY_MAPCID] = "map_changes"
+
+    if len(feMap.mapChanges) == 0:
+        feMap.properties[KEY_PROPERTY_MAPCID] = "0"
+
+    # WRITE DMP FILE
+
+    with open(dmpFilename, 'wb') as f:
+        lzss.compress(feMap.getMapDataBytes(), f)
+
+    # WRITE EVENT FILE
+
+    with open(eventFilename, 'w') as f:
+        f.writelines(genHeaderLines())
+
+        f.write("// Map Data Installer Generated by tmx2ea\n")
+        f.write('\n{\n')
+
+        f.write("\nALIGN 4\nMapData:\n  #incbin \"{}\"\n".format(os.path.relpath(dmpFilename, os.path.dirname(eventFilename))))
+
+        f.write("\nSetChapterData({}, {}, {}, {}, {}, {}, MapData, {}, {}, {})\n".format(
+            feMap.properties[KEY_PROPERTY_CHAPTER],
+            feMap.properties[KEY_PROPERTY_IMAGE1],
+            feMap.properties[KEY_PROPERTY_IMAGE2],
+            feMap.properties[KEY_PROPERTY_PALETTE],
+            feMap.properties[KEY_PROPERTY_CONFIG],
+            feMap.properties[KEY_PROPERTY_MAPID],
+            feMap.properties[KEY_PROPERTY_ANIMS1],
+            feMap.properties[KEY_PROPERTY_ANIMS2],
+            feMap.properties[KEY_PROPERTY_MAPCID]))
+
+        if len(feMap.mapChanges) != 0:
+            for mapChange in feMap.mapChanges:
+                f.write("\nALIGN 4\n")
+                f.write("{}:\n".format(mapChange.name))
+                f.write("  SHORT {}\n".format(' '.join('${:X}'.format(tile) for tile in mapChange.tiles)))
+
+            f.write("\nMapChangesData:\n")
+
+            for mapChange in feMap.mapChanges:
+                f.write('  TileMap({}, {}, {}, {}, {}, {})\n'.format(
+                    mapChange.number,
+                    mapChange.x,
+                    mapChange.y,
+                    mapChange.width,
+                    mapChange.height,
+                    mapChange.name))
+
+            f.write('  TileMapEnd\n')
+
+            f.write("\nEventPointerTable({}, MapChangesData)\n".format(
+                feMap.properties[KEY_PROPERTY_MAPCID]))
+
+        f.write('\n}\n')
 
 def main():
     sys.excepthook = showExceptionAndExit
@@ -214,32 +341,20 @@ def main():
 
     processedFiles = []
 
-    for tmxFile in args.tmxFiles:
-        tmxMap = tmx.TileMap.load(tmxFile)
-        dataLines = process(tmxMap, tmxFile)
+    for tmxFilename in args.tmxFiles:
+        tmxMap = tmx.TileMap.load(tmxFilename)
 
-        if dataLines:
-            eventFile = os.path.splitext(tmxFile)[0]+".event"
+        eventFilename = os.path.splitext(tmxFilename)[0]+".event"
+        dmpFilename   = os.path.splitext(tmxFilename)[0]+"_data.dmp"
 
-            with open(eventFile, 'w') as f:
-                f.write("// Map Data Installer Generated by tmx2ea\n\n")
-                f.write('{\n\n')
-                
-                if not args.noheader:
-                    f.writelines(genHeaderLines())
-
-                f.write(dataLines)
-                f.write('}\n')
-            
-            processedFiles.append(eventFile)
+        process(tmxMap, tmxFilename, eventFilename, dmpFilename)
+        processedFiles.append(eventFilename)
 
     if createInstaller:
         installerFile = args.installer if args.installer else "Master Map Installer.event"
 
         with open(installerFile, 'w') as f:
             f.writelines(map(lambda file: '#include "{}"\n'.format(os.path.relpath(file, os.path.dirname(installerFile))), processedFiles))
-
-    input("....done!\nPress Enter key to exit.")
 
 if __name__ == '__main__':
     main()
