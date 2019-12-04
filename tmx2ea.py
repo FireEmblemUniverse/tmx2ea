@@ -355,8 +355,12 @@ def main():
         eventFilename = os.path.splitext(tmxFilename)[0]+".event"
         dmpFilename   = os.path.splitext(tmxFilename)[0]+"_data.dmp"
 
-        process(tmxFilename, eventFilename, dmpFilename, not args.noheader)
-        processedFiles.append(eventFilename)
+        try:
+            process(tmxFilename, eventFilename, dmpFilename, not args.noheader)
+            processedFiles.append(eventFilename)
+
+        except Tmx2EaError as e:
+            sys.exit("ERROR: {}: {}".format(tmxFilename, e.message))
 
     if createInstaller:
         installerFile = args.installer if args.installer else "Master Map Installer.event"
