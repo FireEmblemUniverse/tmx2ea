@@ -17,15 +17,15 @@ in your rom buildfile.
 
 ---
 
-The Map Installer define the `SetChapterData()` macro, which is used to update the Chapter Data Editor with the appropriate properties.
+The Map Installer define the `SetChapterData()` macro, which is used to update the Chapter Data Editor with the appropriate properties. You can override the behavior of that macro by defining `TMX2EA` as well as that macro before including any map installer.
 
-These properties can be manually substituted in the generated event files, or defined as custom layer properties.
+These properties can be manually set in the generated event files, or defined as custom layer properties.
 
-Supported Layer Properties:
+Supported 'Main' layer Properties:
 
 | Name         | Default Value  | Notes                                                    |
 | ------------ | -------------- | -------------------------------------------------------- |
-| Main         |                | Required when there are multiple layers.                 |
+| Main         |                | Has the same effect as naming the layer 'Main'.          |
 | ChapterID    | ChapterID      | The chapter number/row in the chapter data editor.       |
 | ObjectType1  | ObjectType     | The object set to use. Alias: ObjectType.                |
 | ObjectType2  | 0              |                                                          |
@@ -36,23 +36,30 @@ Supported Layer Properties:
 | Anims1       | 0              | Tile Animation to use. Alias: Anims.                     |
 | Anims2       | 0              |                                                          |
 
-Required for tile change layers:
+Supported map change properties:
 
-| Name         | Notes                                        |
-| ------------ | -------------------------------------------- |
-| ID           | Warning: the actual layer order matters too. |
-| X            | X coordinate of the top left tile.           |
-| Y            | Y coordinate of the top left tile.           |
-| Height       | Height of the tile change.                   |
-| Width        | Width of the tile change.                    |
+| Name         | Notes                                                                             |
+| ------------ | --------------------------------------------------------------------------------- |
+| ID           | Map Change numerical identifier. By default, picks an unused one starting from 1. |
+
+Note that the `X`, `Y`, `Width` and `Height` properties don't do anything anymore: map change dimentions are now computed automatically from the tile layout. You may however still want to add them for compatibility with older versions that required them.
 
 Command line arguments:
 
-	usage: tmx2ea [-h] [-s] [tmxpath [tmxpath ...]]
+    usage: tmx2ea.py [-h] [-s] [-O INSTALLER] [-H] [tmxFiles [tmxFiles ...]]
 
-	positional arguments:
-	  tmxpath            path to tmx file to process
+    Convert TMX file(s) to EA events. When no arguments are given, will ask what
+    to do. If given a list of tmx files, will process them all. If given the `-s`
+    option, will scan current directory for tmx files, process them all, and
+    generate a master installer.
 
-	optional arguments:
-	  -h, --help         show this help message and exit
-	  -s, --scanfolders  scan all subfolders and generate master installer
+    positional arguments:
+      tmxFiles              path to tmx file(s) to process
+
+    optional arguments:
+      -h, --help            show this help message and exit
+      -s, --scanfolders     scan all subfolders and generate master installer
+      -O INSTALLER, --installer INSTALLER
+                            output installer event (default: [Folder]/Master Map
+                            Installer.event)
+      -H, --noheader        do not add in the tmx2ea header in generated file(s)
