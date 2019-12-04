@@ -83,13 +83,19 @@ class FeMapChange:
 
         return result
 
+class MapPropertyInfo:
+
+    def __init__(self, default, aliases):
+        self.default = default # str
+        self.aliases = aliases # str[]
+
 class FeMap:
 
     def __init__(self, size, mainLayer, mapChanges, properties):
         self.size       = size       # (int, int)
         self.mapChanges = mapChanges # FeMapChange[]
         self.mainLayer  = mainLayer  # int[]
-        self.properties = properties # { string: string }
+        self.properties = properties # { str: str }
 
     def genMissingMapChangeIds(self):
         # building set of used map change ids
@@ -109,6 +115,32 @@ class FeMap:
                 i = i + 1
 
             mapChange.number = i
+
+    def normalizeProperties(self, infoDict):
+        """
+        resolves missing properties by setting defaults and checking for aliases
+        according to the rules provided by the infoDict arg (dict of str to MapPropertyInfo)
+        """
+
+        for name, info in infoDict.items():
+            hasProp = name in self.properties
+
+            for alias in info.aliases:
+                if alias in self.properties:
+                    if not hasProp:
+                        self.properties[name] = self.properties[alias]
+                        hasProp = True
+
+                    else:
+                        # alias present while property is already defined!
+                        raise Tmx2EaError("property '{}' is defined more than once via alias '{}'!".format(
+                            name, alias))
+
+                    del self.properties[alias]
+
+            if not hasProp:
+                # setting default value
+                self.properties[name] = info.default
 
     @staticmethod
     def makeFromTiledMap(tmap):
@@ -156,17 +188,6 @@ class FeMap:
         u16Array = [self.size[0] + (self.size[1] << 8)] + self.mainLayer
         return b''.join([x.to_bytes(2, 'little') for x in u16Array])
 
-KEY_PROPERTY_IMAGE1  = "objecttype1"
-KEY_PROPERTY_IMAGE2  = "objecttype2"
-KEY_PROPERTY_PALETTE = "paletteid"
-KEY_PROPERTY_CONFIG  = "tileconfig"
-KEY_PROPERTY_ANIMS1  = "anims1"
-KEY_PROPERTY_ANIMS2  = "anims2"
-
-KEY_PROPERTY_CHAPTER = "chapterid"
-KEY_PROPERTY_MAPID   = "mapid"
-KEY_PROPERTY_MAPCID  = "mapchangesid"
-
 def genHeaderLines():
     yield '#include "EAstdlib.event"\n\n'
 
@@ -186,6 +207,30 @@ def genHeaderLines():
 
     yield "#endif // TMX2EA\n\n"
 
+KEY_PROPERTY_IMAGE1  = "objecttype1"
+KEY_PROPERTY_IMAGE2  = "objecttype2"
+KEY_PROPERTY_PALETTE = "paletteid"
+KEY_PROPERTY_CONFIG  = "tileconfig"
+KEY_PROPERTY_ANIMS1  = "anims1"
+KEY_PROPERTY_ANIMS2  = "anims2"
+
+KEY_PROPERTY_CHAPTER = "chapterid"
+KEY_PROPERTY_MAPID   = "mapid"
+KEY_PROPERTY_MAPCID  = "mapchangesid"
+
+TMX2EA_PROPERTY_DICT = {
+    KEY_PROPERTY_IMAGE1:  MapPropertyInfo("ObjectType",  ["objecttype"]),
+    KEY_PROPERTY_IMAGE2:  MapPropertyInfo("0",           []),
+    KEY_PROPERTY_PALETTE: MapPropertyInfo("PaletteID",   []),
+    KEY_PROPERTY_CONFIG:  MapPropertyInfo("TileConfig",  []),
+    KEY_PROPERTY_ANIMS1:  MapPropertyInfo("0",           ["anims"]),
+    KEY_PROPERTY_ANIMS2:  MapPropertyInfo("0",           []),
+
+    KEY_PROPERTY_CHAPTER: MapPropertyInfo("ChapterID",   []),
+    KEY_PROPERTY_MAPID:   MapPropertyInfo("map_id",      []),
+    KEY_PROPERTY_MAPCID:  MapPropertyInfo("map_changes", []),
+}
+
 def process(tmap, srcFilename, eventFilename, dmpFilename):
     """
     Let's see. Need to get layers. 
@@ -197,45 +242,9 @@ def process(tmap, srcFilename, eventFilename, dmpFilename):
     """
 
     feMap = FeMap.makeFromTiledMap(tmap)
+
     feMap.genMissingMapChangeIds()
-
-    # Fill unset properties
-    # TODO: do that more clean (use data structure to define aliases and defaults)
-
-    if not KEY_PROPERTY_IMAGE1 in feMap.properties:
-        if "objecttype" in feMap.properties:
-            feMap.properties[KEY_PROPERTY_IMAGE1] = feMap.properties["objecttype"]
-            del feMap.properties["objecttype"]
-        else:
-            feMap.properties[KEY_PROPERTY_IMAGE1] = "ObjectType"
-
-    if not KEY_PROPERTY_IMAGE2 in feMap.properties:
-        feMap.properties[KEY_PROPERTY_IMAGE2] = "0"
-
-    if not KEY_PROPERTY_PALETTE in feMap.properties:
-        feMap.properties[KEY_PROPERTY_PALETTE] = "PaletteID"
-
-    if not KEY_PROPERTY_CONFIG in feMap.properties:
-        feMap.properties[KEY_PROPERTY_CONFIG] = "TileConfig"
-
-    if not KEY_PROPERTY_ANIMS1 in feMap.properties:
-        if "anims" in feMap.properties:
-            feMap.properties[KEY_PROPERTY_ANIMS1] = feMap.properties["anims"]
-            del feMap.properties["anims"]
-        else:
-            feMap.properties[KEY_PROPERTY_ANIMS1] = "0"
-
-    if not KEY_PROPERTY_ANIMS2 in feMap.properties:
-        feMap.properties[KEY_PROPERTY_ANIMS2] = "0"
-
-    if not KEY_PROPERTY_CHAPTER in feMap.properties:
-        feMap.properties[KEY_PROPERTY_CHAPTER] = "ChapterID"
-
-    if not KEY_PROPERTY_MAPID in feMap.properties:
-        feMap.properties[KEY_PROPERTY_MAPID] = "map_id"
-
-    if not KEY_PROPERTY_MAPCID in feMap.properties:
-        feMap.properties[KEY_PROPERTY_MAPCID] = "map_changes"
+    feMap.normalizeProperties(TMX2EA_PROPERTY_DICT)
 
     if len(feMap.mapChanges) == 0:
         feMap.properties[KEY_PROPERTY_MAPCID] = "0"
