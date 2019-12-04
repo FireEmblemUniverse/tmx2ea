@@ -79,7 +79,11 @@ class FeMapChange:
 
         for p in layer.properties:
             if p.name.upper() == 'ID':
-                result.number = int(p.value, base = 0)
+                try:
+                    result.number = int(p.value, base = 0)
+
+                except ValueError:
+                    result.number = int(p.value)
 
         return result
 
