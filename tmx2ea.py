@@ -286,7 +286,7 @@ def process(tmxFilename, eventFilename, dmpFilename, boolAddHeader):
                 f.write("{}:\n".format(mapChange.name))
                 f.write("  SHORT {}\n".format(' '.join('${:X}'.format(tile) for tile in mapChange.tiles)))
 
-            f.write("\nMapChangesData:\n")
+            f.write("\nALIGN 4\nMapChangesData:\n")
 
             for mapChange in feMap.mapChanges:
                 f.write('  TileMap({}, {}, {}, {}, {}, {})\n'.format(
