@@ -27,8 +27,8 @@ def getMapChangeGeometry(tmap, layer):
     xMax = 0
     yMax = 0
 
-    for ix in range(tmap.width):
-        for iy in range(tmap.height):
+    for iy in range(tmap.height):
+        for ix in range(tmap.width):
             idx = iy * tmap.width + ix
 
             if layer.tiles[idx].gid is not 0:
@@ -42,8 +42,8 @@ def getMapChangeGeometry(tmap, layer):
 def getMapChangeData(tmap, layer, geometry):
     tiles = []
 
-    for ix in range(geometry[0], geometry[0] + geometry[2]):
-        for iy in range(geometry[1], geometry[1] + geometry[3]):
+    for iy in range(geometry[1], geometry[1] + geometry[3]):
+        for ix in range(geometry[0], geometry[0] + geometry[2]):
             idx = iy * tmap.width + ix
             tiles.append(tmxTileToGbafeTile(layer.tiles[idx].gid))
 
