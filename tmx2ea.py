@@ -20,7 +20,11 @@ class Tmx2EaError(Exception):
         self.message = msg
 
 def getMapChangeGeometry(tmap, layer):
-    # TODO: account for X, Y, Width, Height parameters when they are present.
+    """
+    For given layer in given tiled map,
+    returns a (x, y, width, height) tuple corresponding to
+    the smallest rect containing all new tiles.
+    """
 
     xMin = tmap.width
     yMin = tmap.height
@@ -40,6 +44,11 @@ def getMapChangeGeometry(tmap, layer):
     return (xMin, yMin, xMax - xMin + 1, yMax - yMin + 1)
 
 def getMapChangeData(tmap, layer, geometry):
+    """
+    For given layer in given tiled map, and geometry tuple,
+    Returns the list of tile ids corresponding to the map change
+    """
+
     tiles = []
 
     for iy in range(geometry[1], geometry[1] + geometry[3]):
@@ -102,6 +111,10 @@ class FeMap:
         self.properties = properties # { str: str }
 
     def genMissingMapChangeIds(self):
+        """
+        Fill out unset tile ids with unused ids
+        """
+
         # building set of used map change ids
         ids = { mapChange.number for mapChange in self.mapChanges if mapChange.number >= 0 }
 
@@ -189,6 +202,10 @@ class FeMap:
         return FeMap(size, mainLayer, mapChanges, properties)
 
     def getMapDataBytes(self):
+        """
+        Generates main layer data that is to be compressed.
+        """
+
         u16Array = [self.size[0] + (self.size[1] << 8)] + self.mainLayer
         return b''.join([x.to_bytes(2, 'little') for x in u16Array])
 
@@ -237,12 +254,7 @@ TMX2EA_PROPERTY_DICT = {
 
 def process(tmxFilename, eventFilename, dmpFilename, boolAddHeader):
     """
-    Let's see. Need to get layers. 
-     <property name="Height" value ="3"/>
-     <property name="ID" value ="1"/>
-     <property name="Width" value ="3"/>
-     <property name="X" value ="6"/>
-     <property name="Y" value ="0"/>
+    Generates eventFilename and dmpFilename from tmxFilename
     """
 
     feMap = FeMap.makeFromTiledMap(tmx.TileMap.load(tmxFilename))
