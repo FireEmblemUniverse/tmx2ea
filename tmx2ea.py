@@ -218,13 +218,15 @@ def genHeaderLines():
     yield "#ifndef ChapterDataTable\n"
     yield "    #ifdef _FE7_\n"
     yield "        #define ChapterDataTable 0xC9A200\n"
+    yield "        #define ChapterDataTableEntSize 152\n"
     yield "    #endif\n"
     yield "    #ifdef _FE8_\n"
     yield "        #define ChapterDataTable 0x8B0890\n"
+    yield "        #define ChapterDataTableEntSize 148\n"
     yield "    #endif\n"
     yield "#endif\n\n"
 
-    yield '#define SetChapterData(ChapterID,ObjectType1,ObjectType2,PaletteID,TileConfig,MapID,MapPointer,Anims1,Anims2,MapChanges) "PUSH; ORG ChapterDataTable+(ChapterID*148)+4; BYTE ObjectType1 ObjectType2 PaletteID TileConfig MapID Anims1 Anims2 MapChanges; EventPointerTable(MapID,MapPointer); POP"\n\n'
+    yield '#define SetChapterData(ChapterID,ObjectType1,ObjectType2,PaletteID,TileConfig,MapID,MapPointer,Anims1,Anims2,MapChanges) "PUSH; ORG ChapterDataTable+(ChapterID*ChapterDataTableEntSize)+4; BYTE ObjectType1 ObjectType2 PaletteID TileConfig MapID Anims1 Anims2 MapChanges; EventPointerTable(MapID,MapPointer); POP"\n\n'
 
     yield "#endif // TMX2EA\n\n"
 
