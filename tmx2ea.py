@@ -35,7 +35,7 @@ def getMapChangeGeometry(tmap, layer):
         for ix in range(tmap.width):
             idx = iy * tmap.width + ix
 
-            if layer.tiles[idx].gid is not 0:
+            if layer.tiles[idx].gid != 0:
                 xMin = xMin if xMin < ix else ix
                 yMin = yMin if yMin < iy else iy
                 xMax = xMax if xMax > ix else ix
