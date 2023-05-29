@@ -320,7 +320,6 @@ def process(tmxFilename, eventFilename, dmpFilename, boolAddHeader):
 
 def main():
     sys.excepthook = showExceptionAndExit
-    createInstaller = False
 
     parser = argparse.ArgumentParser(description = 'Convert TMX file(s) to EA events. When no arguments are given, will ask what to do. If given a list of tmx files, will process them all. If given the `-s` option, will scan current directory for tmx files, process them all, and generate a master installer.')
 
@@ -335,6 +334,8 @@ def main():
     parser.add_argument("-H", "--noheader", action="store_true", help="do not add in the tmx2ea header in generated file(s)")
 
     args = parser.parse_args()
+
+    createInstaller = args.installer != None
 
     if (not args.tmxFiles) and (not args.scanfolders): #no arguments given and scanfolders is not true
         import tkinter as tk
